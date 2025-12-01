@@ -17,6 +17,9 @@ class SetupResult {
 /// Константы для плагинов и настроек HMS
 const String agconnectPlugin =
     'id("com.huawei.agconnect") version "1.9.1.303" apply false';
+const String agconnectApply = 'id("com.huawei.agconnect")';
+const String installReferrer =
+    'implementation("com.android.installreferrer:installreferrer:2.2")';
 
 /// XML для intent в queries для com.huawei.hms.core.aidlservice
 const String hmsAidlServiceIntent = '''
@@ -82,6 +85,55 @@ Directory? findProjectRoot([String? startPath]) {
     }
     current = current.parent;
   }
+  return null;
+}
+
+/// Находит границы блока в файле (например, plugins { ... })
+/// Возвращает (startIndex, endIndex) или null, если блок не найден
+(int, int)? _findBlockBounds(
+  List<String> lines,
+  String blockName,
+  int startFrom,
+) {
+  int? blockStart;
+  int blockDepth = 0;
+  bool inBlock = false;
+
+  for (int i = startFrom; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Находим начало блока (например, "plugins {" или "plugins{")
+    if (!inBlock && trimmed.startsWith(blockName) && trimmed.contains('{')) {
+      blockStart = i;
+      inBlock = true;
+      blockDepth = 1;
+      // Проверяем, не закрылся ли блок в той же строке
+      final openBraces = trimmed.split('{').length - 1;
+      final closeBraces = trimmed.split('}').length - 1;
+      blockDepth +=
+          openBraces -
+          closeBraces -
+          1; // -1 потому что уже посчитали начальную {
+      if (blockDepth == 0) {
+        return (blockStart, i);
+      }
+      continue;
+    }
+
+    if (inBlock) {
+      // Считаем вложенные скобки в строке
+      final openBraces = line.split('{').length - 1;
+      final closeBraces = line.split('}').length - 1;
+      blockDepth += openBraces - closeBraces;
+
+      // Если блок закрылся
+      if (blockDepth == 0 && blockStart != null) {
+        return (blockStart, i);
+      }
+    }
+  }
+
   return null;
 }
 
@@ -884,29 +936,117 @@ bool removeFromProguardRules(File file) {
   return true;
 }
 
-/// Обновляет app/build.gradle.kts, добавляя proguardFiles
+/// Обновляет app/build.gradle.kts, добавляя proguardFiles, плагины и зависимости
 bool updateAppBuildGradle(File file, File proguardFile) {
-  // Проверяем, существует ли файл proguard-rules.pro
-  if (!proguardFile.existsSync()) {
-    return false; // Не добавляем, если файла нет
+  bool changesMade = false;
+
+  // Добавляем плагин agconnect в блок plugins
+  if (updateAppBuildGradlePlugins(file)) {
+    changesMade = true;
+  }
+
+  // Добавляем зависимость installreferrer
+  if (addDependenciesToAppBuildGradle(file)) {
+    changesMade = true;
   }
 
   final content = file.readAsStringSync();
-
-  // Проверяем построчно, есть ли уже proguardFiles
   final lines = content.split('\n');
+
+  // Проверяем построчно, есть ли уже proguardFiles в блоке release
+  bool hasProguardFiles = false;
+  bool inReleaseCheck = false;
+  bool foundProguardStart = false;
   for (final line in lines) {
     final trimmed = line.trim();
-    if (trimmed.contains('proguardFiles') &&
-        trimmed.contains('proguard-rules.pro')) {
-      return false; // Уже добавлено
+    if (trimmed == 'release {') {
+      inReleaseCheck = true;
+      foundProguardStart = false;
+    } else if (trimmed == '}') {
+      if (inReleaseCheck) {
+        inReleaseCheck = false;
+        foundProguardStart = false;
+      }
+    } else if (inReleaseCheck) {
+      if (trimmed.contains('proguardFiles')) {
+        foundProguardStart = true;
+      }
+      if (foundProguardStart && trimmed.contains('proguard-rules.pro')) {
+        hasProguardFiles = true;
+        break;
+      }
+    }
+  }
+
+  // Если файл proguard-rules.pro не существует, не добавляем proguardFiles
+  bool shouldAddProguardFiles = proguardFile.existsSync() && !hasProguardFiles;
+
+  // Проверяем, есть ли уже нужные настройки
+  bool hasReleaseMinify = false;
+  bool hasReleaseShrink = false;
+  bool hasDebugMinify = false;
+  bool hasDebugShrink = false;
+  bool hasDebugDebuggable = false;
+  bool hasDebugBlock = false;
+  bool hasDebugSigningConfig = false;
+  bool hasReleaseSigningConfig = false;
+
+  bool inDebugBlock = false;
+  bool inReleaseBlock = false;
+
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    if (trimmed == 'debug {') {
+      hasDebugBlock = true;
+      inDebugBlock = true;
+      inReleaseBlock = false;
+    } else if (trimmed == 'release {') {
+      inReleaseBlock = true;
+      inDebugBlock = false;
+    } else if (trimmed == '}') {
+      inDebugBlock = false;
+      inReleaseBlock = false;
+    } else if (inReleaseBlock) {
+      if (trimmed == 'isMinifyEnabled = true') {
+        hasReleaseMinify = true;
+      }
+      if (trimmed == 'isShrinkResources = true') {
+        hasReleaseShrink = true;
+      }
+      if (trimmed.contains('signingConfig') &&
+          trimmed.contains('getByName("release")')) {
+        hasReleaseSigningConfig = true;
+      }
+    } else if (inDebugBlock) {
+      if (trimmed == 'isMinifyEnabled = true') {
+        hasDebugMinify = true;
+      }
+      if (trimmed == 'isShrinkResources = true') {
+        hasDebugShrink = true;
+      }
+      if (trimmed == 'isDebuggable = true') {
+        hasDebugDebuggable = true;
+      }
+      if (trimmed.contains('signingConfig') &&
+          trimmed.contains('getByName("release")')) {
+        hasDebugSigningConfig = true;
+      }
     }
   }
 
   final newLines = <String>[];
   bool inBuildTypes = false;
-  bool inRelease = false;
+  // inReleaseBlock и inDebugBlock уже определены выше
   bool proguardFilesAdded = false;
+  bool releaseSettingsAdded = false;
+  bool debugSettingsAdded = false;
+  bool releaseSigningConfigUpdated = false;
+  
+  // Сбрасываем флаги для нового цикла
+  inReleaseBlock = false;
+  inDebugBlock = false;
 
   for (int i = 0; i < lines.length; i++) {
     final line = lines[i];
@@ -921,15 +1061,53 @@ bool updateAppBuildGradle(File file, File proguardFile) {
 
     // Отслеживаем блок release
     if (inBuildTypes && trimmed == 'release {') {
-      inRelease = true;
+      inReleaseBlock = true;
+      inDebugBlock = false;
       newLines.add(line);
       continue;
     }
 
-    // Добавляем proguardFiles перед закрывающей скобкой release
-    if (inRelease && trimmed == '}') {
-      inRelease = false;
-      if (!proguardFilesAdded) {
+    // Отслеживаем блок debug
+    if (inBuildTypes && trimmed == 'debug {') {
+      inDebugBlock = true;
+      inReleaseBlock = false;
+      newLines.add(line);
+      continue;
+    }
+
+    // Заменяем signingConfig в блоке release с "debug" на "release"
+    if (inReleaseBlock &&
+        trimmed.contains('signingConfig') &&
+        trimmed.contains('getByName("debug")')) {
+      newLines.add('            signingConfig = signingConfigs.getByName("release")');
+      releaseSigningConfigUpdated = true;
+      continue;
+    }
+
+    // Пропускаем строки с signingConfig в блоке release, если уже есть с "release"
+    if (inReleaseBlock &&
+        trimmed.contains('signingConfig') &&
+        trimmed.contains('getByName("release")')) {
+      newLines.add(line);
+      continue;
+    }
+
+    // Пропускаем строки с signingConfig в блоке debug (они уже учтены в hasDebugSigningConfig)
+    if (inDebugBlock &&
+        trimmed.contains('signingConfig') &&
+        trimmed.contains('getByName("release")')) {
+      newLines.add(line);
+      continue;
+    }
+
+    // Добавляем настройки перед закрывающей скобкой release
+    if (inReleaseBlock && trimmed == '}') {
+      inReleaseBlock = false;
+      // Если signingConfig еще не обновлен и его нет, добавляем его
+      if (!releaseSigningConfigUpdated && !hasReleaseSigningConfig) {
+        newLines.add('            signingConfig = signingConfigs.getByName("release")');
+      }
+      if (shouldAddProguardFiles && !proguardFilesAdded) {
         newLines.add('            proguardFiles(');
         newLines.add(
           '                getDefaultProguardFile("proguard-android.txt"),',
@@ -938,12 +1116,55 @@ bool updateAppBuildGradle(File file, File proguardFile) {
         newLines.add('            )');
         proguardFilesAdded = true;
       }
+      if (!releaseSettingsAdded && (!hasReleaseMinify || !hasReleaseShrink)) {
+        if (!hasReleaseMinify) {
+          newLines.add('            isMinifyEnabled = true');
+        }
+        if (!hasReleaseShrink) {
+          newLines.add('            isShrinkResources = true');
+        }
+        releaseSettingsAdded = true;
+      }
+      newLines.add(line);
+      continue;
+    }
+
+    // Добавляем настройки перед закрывающей скобкой debug
+    if (inDebugBlock && trimmed == '}') {
+      inDebugBlock = false;
+      // Если signingConfig еще не добавлен, добавляем его
+      if (!hasDebugSigningConfig) {
+        newLines.add('            signingConfig = signingConfigs.getByName("release")');
+      }
+      if (!debugSettingsAdded &&
+          (!hasDebugMinify || !hasDebugShrink || !hasDebugDebuggable)) {
+        if (!hasDebugMinify) {
+          newLines.add('            isMinifyEnabled = true');
+        }
+        if (!hasDebugShrink) {
+          newLines.add('            isShrinkResources = true');
+        }
+        if (!hasDebugDebuggable) {
+          newLines.add('            isDebuggable = true');
+        }
+        debugSettingsAdded = true;
+      }
       newLines.add(line);
       continue;
     }
 
     if (inBuildTypes && trimmed == '}') {
       inBuildTypes = false;
+      // Если нет блока debug, создаем его перед закрывающей скобкой buildTypes
+      if (!hasDebugBlock && !debugSettingsAdded) {
+        newLines.add('        debug {');
+        newLines.add('            signingConfig = signingConfigs.getByName("release")');
+        newLines.add('            isMinifyEnabled = true');
+        newLines.add('            isShrinkResources = true');
+        newLines.add('            isDebuggable = true');
+        newLines.add('        }');
+        debugSettingsAdded = true;
+      }
       newLines.add(line);
       continue;
     }
@@ -960,8 +1181,319 @@ bool updateAppBuildGradle(File file, File proguardFile) {
   return true;
 }
 
-/// Удаляет proguardFiles из app/build.gradle.kts
+/// Обновляет app/build.gradle.kts, добавляя плагин agconnect в блок plugins
+bool updateAppBuildGradlePlugins(File file) {
+  final lines = file.readAsLinesSync();
+
+  // Проверяем, есть ли уже плагин agconnect
+  final hasPlugin = lines.any(
+    (line) =>
+        line.contains('com.huawei.agconnect') &&
+        !line.contains('version') &&
+        !line.contains('apply false'),
+  );
+
+  if (hasPlugin) {
+    return false; // Уже настроено
+  }
+
+  // Ищем блок plugins
+  final blockBounds = _findBlockBounds(lines, 'plugins', 0);
+  if (blockBounds != null) {
+    final (blockStart, blockEnd) = blockBounds;
+
+    // Добавляем плагин перед закрывающей скобкой
+    final newLines = <String>[];
+    for (int i = 0; i < lines.length; i++) {
+      if (i == blockEnd) {
+        // Вставляем перед закрывающей скобкой
+        newLines.add('    // Плагин для hms_services:');
+        newLines.add('    $agconnectApply');
+      }
+      newLines.add(lines[i]);
+    }
+
+    file.writeAsStringSync(newLines.join('\n') + '\n');
+    return true;
+  } else {
+    // Если блока plugins нет, добавляем в начало файла
+    final newLines = <String>[];
+    newLines.add('plugins {');
+    newLines.add('    // Плагин для hms_services:');
+    newLines.add('    $agconnectApply');
+    newLines.add('}');
+    newLines.add('');
+    newLines.addAll(lines);
+
+    file.writeAsStringSync(newLines.join('\n') + '\n');
+    return true;
+  }
+}
+
+/// Добавляет зависимости в app/build.gradle.kts
+bool addDependenciesToAppBuildGradle(File file) {
+  final lines = file.readAsLinesSync();
+
+  // Проверяем, есть ли уже зависимость installreferrer
+  final hasDependency = lines.any(
+    (line) => line.contains('installreferrer:2.2'),
+  );
+
+  if (hasDependency) {
+    return false; // Уже добавлено
+  }
+
+  // Ищем блок dependencies
+  final blockBounds = _findBlockBounds(lines, 'dependencies', 0);
+  if (blockBounds != null) {
+    final (blockStart, blockEnd) = blockBounds;
+
+    // Добавляем зависимость перед закрывающей скобкой
+    final newLines = <String>[];
+    for (int i = 0; i < lines.length; i++) {
+      if (i == blockEnd) {
+        // Вставляем перед закрывающей скобкой
+        newLines.add('    // Зависимость для hms_services:');
+        newLines.add('    $installReferrer');
+      }
+      newLines.add(lines[i]);
+    }
+
+    file.writeAsStringSync(newLines.join('\n') + '\n');
+    return true;
+  } else {
+    // Блока dependencies нет, создаем его после блока flutter
+    int flutterBlockEnd = -1;
+    final flutterBlockBounds = _findBlockBounds(lines, 'flutter', 0);
+    if (flutterBlockBounds != null) {
+      flutterBlockEnd = flutterBlockBounds.$2;
+    }
+
+    final newLines = <String>[];
+    for (int i = 0; i < lines.length; i++) {
+      newLines.add(lines[i]);
+      if (i == flutterBlockEnd ||
+          (flutterBlockEnd == -1 && i == lines.length - 1)) {
+        newLines.add('');
+        newLines.add('dependencies {');
+        newLines.add('    // Зависимость для hms_services:');
+        newLines.add('    $installReferrer');
+        newLines.add('}');
+      }
+    }
+
+    file.writeAsStringSync(newLines.join('\n') + '\n');
+    return true;
+  }
+}
+
+/// Удаляет плагин agconnect из app/build.gradle.kts
+bool removeAppBuildGradlePlugins(File file) {
+  final lines = file.readAsLinesSync();
+
+  // Проверяем, есть ли плагин agconnect
+  final hasPlugin = lines.any(
+    (line) =>
+        line.contains('com.huawei.agconnect') &&
+        !line.contains('version') &&
+        !line.contains('apply false'),
+  );
+
+  if (!hasPlugin) {
+    return false; // Нечего удалять
+  }
+
+  // Ищем блок plugins
+  final blockBounds = _findBlockBounds(lines, 'plugins', 0);
+
+  final newLines = <String>[];
+  bool foundChanges = false;
+
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Пропускаем комментарий
+    if (trimmed.contains('// Плагин для hms_services:') ||
+        trimmed.contains('//Плагин для hms_services:')) {
+      foundChanges = true;
+      continue;
+    }
+
+    // Пропускаем строки с плагином agconnect (без version и apply false)
+    if (trimmed.contains('com.huawei.agconnect') &&
+        !trimmed.contains('version') &&
+        !trimmed.contains('apply false')) {
+      foundChanges = true;
+      continue;
+    }
+
+    newLines.add(line);
+  }
+
+  // Проверяем, нужно ли удалить пустой блок plugins
+  if (blockBounds != null && foundChanges) {
+    final (blockStart, blockEnd) = blockBounds;
+
+    // Проверяем, остались ли в блоке только наши строки
+    bool hasOtherContent = false;
+    for (int i = blockStart + 1; i < blockEnd && i < newLines.length; i++) {
+      final trimmed = newLines[i].trim();
+      if (trimmed.isNotEmpty &&
+          !trimmed.contains('// Плагин для hms_services:') &&
+          !trimmed.contains('com.huawei.agconnect')) {
+        hasOtherContent = true;
+        break;
+      }
+    }
+
+    // Если блока plugins не осталось содержимого, удаляем весь блок
+    if (!hasOtherContent &&
+        blockStart < newLines.length &&
+        blockEnd < newLines.length) {
+      final finalLines = <String>[];
+      for (int i = 0; i < newLines.length; i++) {
+        if (i < blockStart || i > blockEnd) {
+          finalLines.add(newLines[i]);
+        }
+      }
+
+      // Удаляем лишние пустые строки
+      while (finalLines.isNotEmpty && finalLines.last.trim().isEmpty) {
+        finalLines.removeLast();
+      }
+
+      newLines.clear();
+      newLines.addAll(finalLines);
+    }
+  }
+
+  // Удаляем лишние пустые строки в конце
+  while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {
+    newLines.removeLast();
+  }
+
+  if (foundChanges) {
+    file.writeAsStringSync(newLines.join('\n') + '\n');
+    return true;
+  }
+
+  return false;
+}
+
+/// Удаляет зависимости из app/build.gradle.kts
+bool removeDependenciesFromAppBuildGradle(File file) {
+  final lines = file.readAsLinesSync();
+
+  // Проверяем, есть ли зависимость installreferrer
+  final hasDependency = lines.any(
+    (line) => line.contains('installreferrer:2.2'),
+  );
+
+  if (!hasDependency) {
+    return false; // Нечего удалять
+  }
+
+  // Ищем блок dependencies
+  final blockBounds = _findBlockBounds(lines, 'dependencies', 0);
+  if (blockBounds == null) {
+    return false; // Блок dependencies не найден
+  }
+
+  final (blockStart, blockEnd) = blockBounds;
+  final newLines = <String>[];
+  bool foundChanges = false;
+
+  // Обрабатываем строки - удаляем только нашу зависимость
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Если это внутри блока dependencies
+    if (i > blockStart && i < blockEnd) {
+      // Пропускаем комментарий
+      if (trimmed.contains('// Зависимость для hms_services:') ||
+          trimmed.contains('//Зависимость для hms_services:')) {
+        foundChanges = true;
+        continue;
+      }
+
+      // Пропускаем зависимость installreferrer
+      if (trimmed.contains('installreferrer:2.2')) {
+        foundChanges = true;
+        continue;
+      }
+    }
+
+    // Оставляем все остальные строки
+    newLines.add(line);
+  }
+
+  // Проверяем, остался ли блок dependencies пустым
+  if (foundChanges) {
+    // Находим блок dependencies в новом массиве после удаления
+    final newBlockBounds = _findBlockBounds(newLines, 'dependencies', 0);
+    if (newBlockBounds != null) {
+      final (newBlockStart, newBlockEnd) = newBlockBounds;
+
+      // Проверяем, пуст ли блок (содержит только пустые строки и комментарии)
+      bool hasContent = false;
+      for (int i = newBlockStart + 1; i < newBlockEnd; i++) {
+        final trimmed = newLines[i].trim();
+        if (trimmed.isNotEmpty && !trimmed.startsWith('//')) {
+          hasContent = true;
+          break;
+        }
+      }
+
+      // Если блок пуст, удаляем его полностью
+      if (!hasContent) {
+        final finalLines = <String>[];
+        for (int i = 0; i < newLines.length; i++) {
+          if (i < newBlockStart || i > newBlockEnd) {
+            finalLines.add(newLines[i]);
+          }
+        }
+
+        // Удаляем лишние пустые строки
+        while (finalLines.isNotEmpty && finalLines.last.trim().isEmpty) {
+          finalLines.removeLast();
+        }
+
+        newLines.clear();
+        newLines.addAll(finalLines);
+      }
+    }
+  }
+
+  // Удаляем лишние пустые строки в конце
+  while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {
+    newLines.removeLast();
+  }
+
+  if (foundChanges) {
+    file.writeAsStringSync(newLines.join('\n') + '\n');
+    return true;
+  }
+
+  return false;
+}
+
+/// Удаляет настройки из app/build.gradle.kts (proguardFiles, плагины, зависимости)
 bool removeFromAppBuildGradle(File file) {
+  bool changesMade = false;
+
+  // Удаляем плагин agconnect
+  if (removeAppBuildGradlePlugins(file)) {
+    changesMade = true;
+  }
+
+  // Удаляем зависимость installreferrer
+  if (removeDependenciesFromAppBuildGradle(file)) {
+    changesMade = true;
+  }
+
+  // Удаляем proguardFiles
   final content = file.readAsStringSync();
 
   // Проверяем построчно, есть ли proguardFiles
@@ -980,7 +1512,7 @@ bool removeFromAppBuildGradle(File file) {
   }
 
   if (!hasProguardFiles) {
-    return false; // Нечего удалять
+    return changesMade; // Возвращаем true, если были другие изменения
   }
 
   final newLines = <String>[];

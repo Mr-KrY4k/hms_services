@@ -14,12 +14,76 @@ class SetupResult {
   SetupResult({required this.changesMade, required this.messages});
 }
 
-/// Константы для плагинов и настроек HMS
-const String agconnectPlugin =
+/// Тип синтаксиса Gradle файла
+enum GradleSyntaxType {
+  kotlinDsl, // .gradle.kts
+  groovy, // .gradle
+}
+
+/// Константы для плагинов и настроек HMS (Kotlin DSL)
+const String agconnectPluginKts =
     'id("com.huawei.agconnect") version "1.9.1.303" apply false';
-const String agconnectApply = 'id("com.huawei.agconnect")';
-const String installReferrer =
+const String agconnectApplyKts = 'id("com.huawei.agconnect")';
+const String installReferrerKts =
     'implementation("com.android.installreferrer:installreferrer:2.2")';
+
+/// Константы для плагинов и настроек HMS (Groovy)
+const String agconnectPluginGroovy =
+    "id 'com.huawei.agconnect' version '1.9.1.303' apply false";
+const String agconnectApplyGroovy = "apply plugin: 'com.huawei.agconnect'";
+const String installReferrerGroovy =
+    "implementation 'com.android.installreferrer:installreferrer:2.2'";
+
+/// Определяет тип синтаксиса Gradle файла по расширению
+GradleSyntaxType _getGradleSyntaxType(File file) {
+  final path = file.path;
+  if (path.endsWith('.gradle.kts')) {
+    return GradleSyntaxType.kotlinDsl;
+  } else if (path.endsWith('.gradle')) {
+    return GradleSyntaxType.groovy;
+  }
+  // По умолчанию считаем Kotlin DSL
+  return GradleSyntaxType.kotlinDsl;
+}
+
+/// Находит файл settings.gradle (проверяет оба варианта: .kts и .gradle)
+File? findSettingsGradleFile(Directory androidDir) {
+  final ktsFile = File('${androidDir.path}/settings.gradle.kts');
+  if (ktsFile.existsSync()) {
+    return ktsFile;
+  }
+  final gradleFile = File('${androidDir.path}/settings.gradle');
+  if (gradleFile.existsSync()) {
+    return gradleFile;
+  }
+  return null;
+}
+
+/// Находит файл build.gradle (проверяет оба варианта: .kts и .gradle)
+File? findBuildGradleFile(Directory androidDir) {
+  final ktsFile = File('${androidDir.path}/build.gradle.kts');
+  if (ktsFile.existsSync()) {
+    return ktsFile;
+  }
+  final gradleFile = File('${androidDir.path}/build.gradle');
+  if (gradleFile.existsSync()) {
+    return gradleFile;
+  }
+  return null;
+}
+
+/// Находит файл app/build.gradle (проверяет оба варианта: .kts и .gradle)
+File? findAppBuildGradleFile(Directory androidDir) {
+  final ktsFile = File('${androidDir.path}/app/build.gradle.kts');
+  if (ktsFile.existsSync()) {
+    return ktsFile;
+  }
+  final gradleFile = File('${androidDir.path}/app/build.gradle');
+  if (gradleFile.existsSync()) {
+    return gradleFile;
+  }
+  return null;
+}
 
 /// XML для intent в queries для com.huawei.hms.core.aidlservice
 const String hmsAidlServiceIntent = '''
@@ -137,9 +201,18 @@ Directory? findProjectRoot([String? startPath]) {
   return null;
 }
 
-/// Обновляет settings.gradle.kts, добавляя плагин Huawei AGConnect
+/// Обновляет settings.gradle(.kts), добавляя плагин Huawei AGConnect
 bool updateSettingsGradle(File file) {
   final content = file.readAsStringSync();
+  final syntaxType = _getGradleSyntaxType(file);
+
+  // Определяем константы в зависимости от типа синтаксиса
+  final String agconnectPlugin;
+  if (syntaxType == GradleSyntaxType.kotlinDsl) {
+    agconnectPlugin = agconnectPluginKts;
+  } else {
+    agconnectPlugin = agconnectPluginGroovy;
+  }
 
   // Проверяем, есть ли уже плагин
   if (content.contains('com.huawei.agconnect')) {
@@ -1181,9 +1254,18 @@ bool updateAppBuildGradle(File file, File proguardFile) {
   return true;
 }
 
-/// Обновляет app/build.gradle.kts, добавляя плагин agconnect в блок plugins
+/// Обновляет app/build.gradle(.kts), добавляя плагин agconnect в блок plugins
 bool updateAppBuildGradlePlugins(File file) {
   final lines = file.readAsLinesSync();
+  final syntaxType = _getGradleSyntaxType(file);
+
+  // Определяем константы в зависимости от типа синтаксиса
+  final String agconnectApply;
+  if (syntaxType == GradleSyntaxType.kotlinDsl) {
+    agconnectApply = agconnectApplyKts;
+  } else {
+    agconnectApply = agconnectApplyGroovy;
+  }
 
   // Проверяем, есть ли уже плагин agconnect
   final hasPlugin = lines.any(
@@ -1230,9 +1312,18 @@ bool updateAppBuildGradlePlugins(File file) {
   }
 }
 
-/// Добавляет зависимости в app/build.gradle.kts
+/// Добавляет зависимости в app/build.gradle(.kts)
 bool addDependenciesToAppBuildGradle(File file) {
   final lines = file.readAsLinesSync();
+  final syntaxType = _getGradleSyntaxType(file);
+
+  // Определяем константы в зависимости от типа синтаксиса
+  final String installReferrer;
+  if (syntaxType == GradleSyntaxType.kotlinDsl) {
+    installReferrer = installReferrerKts;
+  } else {
+    installReferrer = installReferrerGroovy;
+  }
 
   // Проверяем, есть ли уже зависимость installreferrer
   final hasDependency = lines.any(

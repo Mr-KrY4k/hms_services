@@ -55,36 +55,38 @@ Future<SetupResult> setupHmsServices({String? projectRoot}) async {
     );
   }
 
-  // Настройка settings.gradle.kts
-  final settingsFile = File('${androidDir.path}/settings.gradle.kts');
-  if (settingsFile.existsSync()) {
-    messages.add('📝 Обновление settings.gradle.kts...');
+  // Настройка settings.gradle (поддерживает .kts и .gradle)
+  final settingsFile = helper.findSettingsGradleFile(androidDir);
+  if (settingsFile != null) {
+    final fileName = settingsFile.path.split('/').last;
+    messages.add('📝 Обновление $fileName...');
     if (helper.updateSettingsGradle(settingsFile)) {
       changesMade = true;
-      messages.add('✅ settings.gradle.kts обновлен успешно.');
+      messages.add('✅ $fileName обновлен успешно.');
     } else {
       messages.add(
-        'ℹ️  settings.gradle.kts уже содержит необходимые настройки.',
+        'ℹ️  $fileName уже содержит необходимые настройки.',
       );
     }
   } else {
-    messages.add('⚠️  Файл settings.gradle.kts не найден. Пропуск...');
+    messages.add('⚠️  Файл settings.gradle(.kts) не найден. Пропуск...');
   }
 
-  // Настройка build.gradle.kts
-  final buildGradleFile = File('${androidDir.path}/build.gradle.kts');
-  if (buildGradleFile.existsSync()) {
-    messages.add('📝 Обновление build.gradle.kts...');
+  // Настройка build.gradle (поддерживает .kts и .gradle)
+  final buildGradleFile = helper.findBuildGradleFile(androidDir);
+  if (buildGradleFile != null) {
+    final fileName = buildGradleFile.path.split('/').last;
+    messages.add('📝 Обновление $fileName...');
     if (helper.updateBuildGradle(buildGradleFile)) {
       changesMade = true;
-      messages.add('✅ build.gradle.kts обновлен успешно.');
+      messages.add('✅ $fileName обновлен успешно.');
     } else {
       messages.add(
-        'ℹ️  build.gradle.kts уже содержит необходимые настройки.',
+        'ℹ️  $fileName уже содержит необходимые настройки.',
       );
     }
   } else {
-    messages.add('⚠️  Файл build.gradle.kts не найден. Пропуск...');
+    messages.add('⚠️  Файл build.gradle(.kts) не найден. Пропуск...');
   }
 
   // Настройка AndroidManifest.xml
@@ -117,20 +119,21 @@ Future<SetupResult> setupHmsServices({String? projectRoot}) async {
     );
   }
 
-  // Настройка app/build.gradle.kts (proguardFiles)
-  final appBuildGradleFile = File('${androidDir.path}/app/build.gradle.kts');
-  if (appBuildGradleFile.existsSync()) {
-    messages.add('📝 Обновление app/build.gradle.kts...');
+  // Настройка app/build.gradle (поддерживает .kts и .gradle)
+  final appBuildGradleFile = helper.findAppBuildGradleFile(androidDir);
+  if (appBuildGradleFile != null) {
+    final fileName = appBuildGradleFile.path.split('/').last;
+    messages.add('📝 Обновление $fileName...');
     if (helper.updateAppBuildGradle(appBuildGradleFile, proguardFile)) {
       changesMade = true;
-      messages.add('✅ app/build.gradle.kts обновлен успешно.');
+      messages.add('✅ $fileName обновлен успешно.');
     } else {
       messages.add(
-        'ℹ️  app/build.gradle.kts уже содержит необходимые настройки или файл proguard-rules.pro отсутствует.',
+        'ℹ️  $fileName уже содержит необходимые настройки или файл proguard-rules.pro отсутствует.',
       );
     }
   } else {
-    messages.add('⚠️  Файл app/build.gradle.kts не найден. Пропуск...');
+    messages.add('⚠️  Файл app/build.gradle(.kts) не найден. Пропуск...');
   }
 
   // Добавляем финальные сообщения для пользователя

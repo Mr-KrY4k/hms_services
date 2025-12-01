@@ -156,7 +156,6 @@ bool updateAndroidManifest(File file) {
   bool hasApplicationTag = false;
 
   // Ищем тег <queries> для добавления intent
-  int queriesCloseIndex = -1;
   bool hasQueriesTag = false;
 
   for (int i = 0; i < lines.length; i++) {
@@ -171,7 +170,6 @@ bool updateAndroidManifest(File file) {
       hasQueriesTag = true;
     }
     if (hasQueriesTag && line == '</queries>') {
-      queriesCloseIndex = i;
       break;
     }
   }
@@ -186,11 +184,8 @@ bool updateAndroidManifest(File file) {
         // Вставляем application перед </manifest>
         newLines.add('    <application>');
         newLines.add('        $pushKitAutoInitMetaData');
-        newLines.add('');
         newLines.add(hmsLocalNotificationBootEventReceiver);
-        newLines.add('');
         newLines.add('        $hmsLocalNotificationScheduledPublisher');
-        newLines.add('');
         newLines.add(backgroundMessageBroadcastReceiver);
         newLines.add('    </application>');
         newLines.add(line);
@@ -204,11 +199,8 @@ bool updateAndroidManifest(File file) {
       if (i == applicationCloseIndex) {
         // Вставляем перед закрывающим тегом application
         newLines.add('        $pushKitAutoInitMetaData');
-        newLines.add('');
         newLines.add(hmsLocalNotificationBootEventReceiver);
-        newLines.add('');
         newLines.add('        $hmsLocalNotificationScheduledPublisher');
-        newLines.add('');
         newLines.add(backgroundMessageBroadcastReceiver);
         newLines.add(lines[i]);
       } else {

@@ -48,6 +48,28 @@ const String backgroundMessageBroadcastReceiver = '''
             </intent-filter>
         </receiver>''';
 
+/// Содержимое для proguard-rules.pro
+const String proguardRulesContent = '''-ignorewarnings
+-keepattributes *Annotation*
+-keepattributes Exceptions
+-keepattributes InnerClasses
+-keepattributes Signature
+-keepattributes EnclosingMethod
+-keep class com.hianalytics.android.**{*;}
+-keep class com.huawei.updatesdk.**{*;}
+-keep class com.huawei.hms.**{*;}
+## Flutter wrapper
+-keep class io.flutter.app.** { *; }
+-keep class io.flutter.plugin.**  { *; }
+-keep class io.flutter.util.**  { *; }
+-keep class io.flutter.view.**  { *; }
+-keep class io.flutter.**  { *; }
+-keep class io.flutter.plugins.**  { *; }
+-dontwarn io.flutter.embedding.**
+-keep class com.huawei.hms.flutter.** { *; }
+-repackageclasses
+''';
+
 /// Находит корневую директорию Flutter проекта
 Directory? findProjectRoot([String? startPath]) {
   Directory current = startPath != null
@@ -744,4 +766,120 @@ List<String> _removeEmptyBlocks(List<String> lines) {
   }
 
   return result;
+}
+
+/// Создает или обновляет proguard-rules.pro
+bool updateProguardRules(File file) {
+  // Проверяем, есть ли уже настройки HMS в файле
+  if (file.existsSync()) {
+    final content = file.readAsStringSync();
+    if (content.contains('com.huawei.hms') || content.contains('hianalytics')) {
+      return false; // Уже настроено
+    }
+    // Если файл существует, но не содержит HMS правил, добавляем их
+    final newContent = '$content\n$proguardRulesContent';
+    file.writeAsStringSync(newContent);
+    return true;
+  } else {
+    // Если файла нет, создаем его
+    file.createSync(recursive: true);
+    file.writeAsStringSync(proguardRulesContent);
+    return true;
+  }
+}
+
+/// Удаляет настройки HMS из proguard-rules.pro
+/// Если файл становится пустым, удаляет его
+bool removeFromProguardRules(File file) {
+  if (!file.existsSync()) {
+    return false; // Файла нет, нечего удалять
+  }
+
+  final content = file.readAsStringSync();
+
+  // Проверяем, есть ли настройки HMS
+  if (!content.contains('com.huawei.hms') && !content.contains('hianalytics')) {
+    return false; // Нечего удалять
+  }
+
+  // Получаем список строк, которые нужно удалить (из proguardRulesContent)
+  final rulesToRemove = proguardRulesContent
+      .split('\n')
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toSet();
+
+  final lines = content.split('\n');
+  final newLines = <String>[];
+
+  // Удаляем строки, которые точно совпадают с нашими правилами
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Пропускаем строки, которые точно совпадают с нашими правилами
+    if (rulesToRemove.contains(trimmed)) {
+      continue;
+    }
+
+    // Также удаляем строки, которые содержат HMS классы
+    if (trimmed.contains('com.huawei.hms') ||
+        trimmed.contains('hianalytics') ||
+        trimmed.contains('huawei.updatesdk') ||
+        trimmed.contains('huawei.hms.flutter')) {
+      continue;
+    }
+
+    // Удаляем комментарий "## Flutter wrapper" только если он идет перед HMS правилами
+    if (trimmed == '## Flutter wrapper') {
+      // Проверяем следующие строки - если там HMS правила, пропускаем комментарий
+      bool hasHmsAfter = false;
+      for (int j = i + 1; j < lines.length && j < i + 15; j++) {
+        final nextTrimmed = lines[j].trim();
+        if (nextTrimmed.isEmpty) continue;
+        if (nextTrimmed.contains('com.huawei.hms') ||
+            nextTrimmed.contains('huawei.hms.flutter') ||
+            nextTrimmed.contains('hianalytics')) {
+          hasHmsAfter = true;
+          break;
+        }
+        // Если встретили другую строку (не HMS), прекращаем проверку
+        if (!nextTrimmed.startsWith('-') && !nextTrimmed.startsWith('#')) {
+          break;
+        }
+      }
+      if (hasHmsAfter) {
+        continue; // Пропускаем комментарий
+      }
+    }
+
+    newLines.add(line);
+  }
+
+  // Удаляем пустые строки в конце
+  while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {
+    newLines.removeLast();
+  }
+
+  // Удаляем множественные пустые строки подряд
+  final cleanedLines = <String>[];
+  bool previousEmpty = false;
+  for (final line in newLines) {
+    final isEmpty = line.trim().isEmpty;
+    if (isEmpty && previousEmpty) {
+      continue; // Пропускаем повторяющиеся пустые строки
+    }
+    previousEmpty = isEmpty;
+    cleanedLines.add(line);
+  }
+
+  // Если файл стал пустым, удаляем его
+  final finalContent = cleanedLines.join('\n').trim();
+  if (finalContent.isEmpty) {
+    file.deleteSync();
+    return true;
+  }
+
+  file.writeAsStringSync(finalContent + '\n');
+  return true;
 }

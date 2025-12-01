@@ -99,6 +99,24 @@ Future<SetupResult> cleanupHmsServices({String? projectRoot}) async {
     messages.add('⚠️  Файл AndroidManifest.xml не найден. Пропуск...');
   }
 
+  // Удаление из proguard-rules.pro
+  final proguardFile = File('${androidDir.path}/app/proguard-rules.pro');
+  if (proguardFile.existsSync()) {
+    messages.add('📝 Обновление proguard-rules.pro...');
+    if (helper.removeFromProguardRules(proguardFile)) {
+      changesMade = true;
+      if (proguardFile.existsSync()) {
+        messages.add('✅ Настройки удалены из proguard-rules.pro.');
+      } else {
+        messages.add('✅ Файл proguard-rules.pro удален (стал пустым).');
+      }
+    } else {
+      messages.add('ℹ️  Настройки не найдены в proguard-rules.pro.');
+    }
+  } else {
+    messages.add('ℹ️  Файл proguard-rules.pro не найден. Пропуск...');
+  }
+
   // Добавляем финальное сообщение
   messages.add('');
   if (changesMade) {

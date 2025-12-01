@@ -105,6 +105,18 @@ Future<SetupResult> setupHmsServices({String? projectRoot}) async {
     messages.add('⚠️  Файл AndroidManifest.xml не найден. Пропуск...');
   }
 
+  // Настройка proguard-rules.pro
+  final proguardFile = File('${androidDir.path}/app/proguard-rules.pro');
+  messages.add('📝 Обновление proguard-rules.pro...');
+  if (helper.updateProguardRules(proguardFile)) {
+    changesMade = true;
+    messages.add('✅ proguard-rules.pro обновлен успешно.');
+  } else {
+    messages.add(
+      'ℹ️  proguard-rules.pro уже содержит необходимые настройки.',
+    );
+  }
+
   // Добавляем финальные сообщения для пользователя
   if (changesMade) {
     messages.add('');

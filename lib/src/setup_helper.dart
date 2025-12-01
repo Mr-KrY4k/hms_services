@@ -1011,8 +1011,6 @@ bool removeFromProguardRules(File file) {
 
 /// Обновляет app/build.gradle.kts, добавляя proguardFiles, плагины и зависимости
 bool updateAppBuildGradle(File file, File proguardFile) {
-  bool changesMade = false;
-
   // Добавляем плагин agconnect в блок plugins
   updateAppBuildGradlePlugins(file);
 

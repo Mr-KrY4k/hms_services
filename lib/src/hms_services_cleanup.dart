@@ -1,5 +1,5 @@
 /// Модуль для удаления настроек Android проекта для плагина hms_services.
-library hms_services_cleanup;
+library;
 
 import 'dart:io';
 import 'setup_helper.dart' as helper;

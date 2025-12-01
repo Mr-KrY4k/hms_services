@@ -1,5 +1,5 @@
 /// Модуль для настройки Android проекта для плагина hms_services.
-library hms_services_setup;
+library;
 
 import 'dart:io';
 import 'setup_helper.dart' as helper;

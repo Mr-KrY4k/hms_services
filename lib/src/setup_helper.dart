@@ -1,5 +1,5 @@
 /// Внутренний модуль с общей логикой для настройки и очистки Android проекта.
-library hms_services_setup_helper;
+library;
 
 import 'dart:io';
 
@@ -403,7 +403,7 @@ bool updateAndroidManifest(File file) {
     newLines.addAll(updatedLines);
   }
 
-  file.writeAsStringSync(newLines.join('\n') + '\n');
+  file.writeAsStringSync('${newLines.join('\n')}\n\n');
   return true;
 }
 
@@ -450,7 +450,7 @@ bool removeFromSettingsGradle(File file) {
   final finalLines = _removeEmptyBlocks(newLines);
 
   if (finalLines.length != lines.length || foundComment) {
-    file.writeAsStringSync(finalLines.join('\n') + '\n');
+    file.writeAsStringSync('${finalLines.join('\n')}\n\n');
     return true;
   }
 
@@ -555,7 +555,7 @@ bool removeFromAndroidManifest(File file) {
   if (found) {
     // Удаляем пустые блоки (например, пустой <queries>)
     final finalLines = _removeEmptyXmlBlocks(newLines);
-    file.writeAsStringSync(finalLines.join('\n') + '\n');
+    file.writeAsStringSync('${finalLines.join('\n')}\n\n');
     return true;
   }
 
@@ -724,7 +724,7 @@ bool updateBuildGradle(File file) {
   }
 
   // Сохраняем файл как есть (не объединяем subprojects блоки)
-  file.writeAsStringSync(newLines.join('\n') + '\n');
+  file.writeAsStringSync('${newLines.join('\n')}\n\n');
   return true;
 }
 
@@ -834,7 +834,7 @@ bool removeFromBuildGradle(File file) {
   // Удаляем пустые блоки
   final finalLines = _removeEmptyBlocks(cleanedLines);
 
-  file.writeAsStringSync(finalLines.join('\n') + '\n');
+  file.writeAsStringSync('${finalLines.join('\n')}\n');
   return true;
 }
 
@@ -1005,7 +1005,7 @@ bool removeFromProguardRules(File file) {
     return true;
   }
 
-  file.writeAsStringSync(finalContent + '\n');
+  file.writeAsStringSync('$finalContent\n');
   return true;
 }
 
@@ -1014,14 +1014,10 @@ bool updateAppBuildGradle(File file, File proguardFile) {
   bool changesMade = false;
 
   // Добавляем плагин agconnect в блок plugins
-  if (updateAppBuildGradlePlugins(file)) {
-    changesMade = true;
-  }
+  updateAppBuildGradlePlugins(file);
 
   // Добавляем зависимость installreferrer
-  if (addDependenciesToAppBuildGradle(file)) {
-    changesMade = true;
-  }
+  addDependenciesToAppBuildGradle(file);
 
   final content = file.readAsStringSync();
   final lines = content.split('\n');
@@ -1116,7 +1112,7 @@ bool updateAppBuildGradle(File file, File proguardFile) {
   bool releaseSettingsAdded = false;
   bool debugSettingsAdded = false;
   bool releaseSigningConfigUpdated = false;
-  
+
   // Сбрасываем флаги для нового цикла
   inReleaseBlock = false;
   inDebugBlock = false;
@@ -1152,7 +1148,9 @@ bool updateAppBuildGradle(File file, File proguardFile) {
     if (inReleaseBlock &&
         trimmed.contains('signingConfig') &&
         trimmed.contains('getByName("debug")')) {
-      newLines.add('            signingConfig = signingConfigs.getByName("release")');
+      newLines.add(
+        '            signingConfig = signingConfigs.getByName("release")',
+      );
       releaseSigningConfigUpdated = true;
       continue;
     }
@@ -1178,7 +1176,9 @@ bool updateAppBuildGradle(File file, File proguardFile) {
       inReleaseBlock = false;
       // Если signingConfig еще не обновлен и его нет, добавляем его
       if (!releaseSigningConfigUpdated && !hasReleaseSigningConfig) {
-        newLines.add('            signingConfig = signingConfigs.getByName("release")');
+        newLines.add(
+          '            signingConfig = signingConfigs.getByName("release")',
+        );
       }
       if (shouldAddProguardFiles && !proguardFilesAdded) {
         newLines.add('            proguardFiles(');
@@ -1207,7 +1207,9 @@ bool updateAppBuildGradle(File file, File proguardFile) {
       inDebugBlock = false;
       // Если signingConfig еще не добавлен, добавляем его
       if (!hasDebugSigningConfig) {
-        newLines.add('            signingConfig = signingConfigs.getByName("release")');
+        newLines.add(
+          '            signingConfig = signingConfigs.getByName("release")',
+        );
       }
       if (!debugSettingsAdded &&
           (!hasDebugMinify || !hasDebugShrink || !hasDebugDebuggable)) {
@@ -1231,7 +1233,9 @@ bool updateAppBuildGradle(File file, File proguardFile) {
       // Если нет блока debug, создаем его перед закрывающей скобкой buildTypes
       if (!hasDebugBlock && !debugSettingsAdded) {
         newLines.add('        debug {');
-        newLines.add('            signingConfig = signingConfigs.getByName("release")');
+        newLines.add(
+          '            signingConfig = signingConfigs.getByName("release")',
+        );
         newLines.add('            isMinifyEnabled = true');
         newLines.add('            isShrinkResources = true');
         newLines.add('            isDebuggable = true');
@@ -1250,7 +1254,7 @@ bool updateAppBuildGradle(File file, File proguardFile) {
     newLines.removeLast();
   }
 
-  file.writeAsStringSync(newLines.join('\n') + '\n');
+  file.writeAsStringSync('${newLines.join('\n')}\n');
   return true;
 }
 
@@ -1295,7 +1299,7 @@ bool updateAppBuildGradlePlugins(File file) {
       newLines.add(lines[i]);
     }
 
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    file.writeAsStringSync('${newLines.join('\n')}\n');
     return true;
   } else {
     // Если блока plugins нет, добавляем в начало файла
@@ -1307,7 +1311,7 @@ bool updateAppBuildGradlePlugins(File file) {
     newLines.add('');
     newLines.addAll(lines);
 
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    file.writeAsStringSync('${newLines.join('\n')}\n');
     return true;
   }
 }
@@ -1350,7 +1354,7 @@ bool addDependenciesToAppBuildGradle(File file) {
       newLines.add(lines[i]);
     }
 
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    file.writeAsStringSync('${newLines.join('\n')}\n');
     return true;
   } else {
     // Блока dependencies нет, создаем его после блока flutter
@@ -1373,7 +1377,7 @@ bool addDependenciesToAppBuildGradle(File file) {
       }
     }
 
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    file.writeAsStringSync('${newLines.join('\n')}\n');
     return true;
   }
 }
@@ -1465,7 +1469,7 @@ bool removeAppBuildGradlePlugins(File file) {
   }
 
   if (foundChanges) {
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    file.writeAsStringSync('${newLines.join('\n')}\n');
     return true;
   }
 
@@ -1563,7 +1567,7 @@ bool removeDependenciesFromAppBuildGradle(File file) {
   }
 
   if (foundChanges) {
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    file.writeAsStringSync('${newLines.join('\n')}\n');
     return true;
   }
 
@@ -1656,6 +1660,6 @@ bool removeFromAppBuildGradle(File file) {
     newLines.removeLast();
   }
 
-  file.writeAsStringSync(newLines.join('\n') + '\n');
+  file.writeAsStringSync('${newLines.join('\n')}\n');
   return true;
 }

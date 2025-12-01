@@ -71,6 +71,22 @@ Future<SetupResult> setupHmsServices({String? projectRoot}) async {
     messages.add('⚠️  Файл settings.gradle.kts не найден. Пропуск...');
   }
 
+  // Настройка build.gradle.kts
+  final buildGradleFile = File('${androidDir.path}/build.gradle.kts');
+  if (buildGradleFile.existsSync()) {
+    messages.add('📝 Обновление build.gradle.kts...');
+    if (helper.updateBuildGradle(buildGradleFile)) {
+      changesMade = true;
+      messages.add('✅ build.gradle.kts обновлен успешно.');
+    } else {
+      messages.add(
+        'ℹ️  build.gradle.kts уже содержит необходимые настройки.',
+      );
+    }
+  } else {
+    messages.add('⚠️  Файл build.gradle.kts не найден. Пропуск...');
+  }
+
   // Настройка AndroidManifest.xml
   final manifestFile = File(
     '${androidDir.path}/app/src/main/AndroidManifest.xml',

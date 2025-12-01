@@ -69,6 +69,20 @@ Future<SetupResult> cleanupHmsServices({String? projectRoot}) async {
     messages.add('⚠️  Файл settings.gradle.kts не найден. Пропуск...');
   }
 
+  // Удаление из build.gradle.kts
+  final buildGradleFile = File('${androidDir.path}/build.gradle.kts');
+  if (buildGradleFile.existsSync()) {
+    messages.add('📝 Обновление build.gradle.kts...');
+    if (helper.removeFromBuildGradle(buildGradleFile)) {
+      changesMade = true;
+      messages.add('✅ Настройки удалены из build.gradle.kts.');
+    } else {
+      messages.add('ℹ️  Настройки не найдены в build.gradle.kts.');
+    }
+  } else {
+    messages.add('⚠️  Файл build.gradle.kts не найден. Пропуск...');
+  }
+
   // Удаление из AndroidManifest.xml
   final manifestFile = File(
     '${androidDir.path}/app/src/main/AndroidManifest.xml',

@@ -409,3 +409,229 @@ bool removeFromAndroidManifest(File file) {
 
   return false;
 }
+
+/// Обновляет build.gradle.kts, добавляя настройки HMS
+bool updateBuildGradle(File file) {
+  final content = file.readAsStringSync();
+
+  // Проверяем, есть ли уже настройки HMS
+  final hasHmsSettings =
+      content.contains('developer.huawei.com/repo') ||
+      content.contains('com.huawei.agconnect:agcp');
+
+  if (hasHmsSettings) {
+    return false; // Уже настроено
+  }
+
+  final lines = content.split('\n');
+  final newLines = <String>[];
+
+  // 1. Добавляем import в начало, если его нет
+  bool hasImport = false;
+  for (final line in lines) {
+    if (line.trim().startsWith('import org.gradle.api.file.Directory')) {
+      hasImport = true;
+      break;
+    }
+  }
+
+  if (!hasImport) {
+    newLines.add('import org.gradle.api.file.Directory');
+    newLines.add('');
+  }
+
+  // 2. Обрабатываем остальные строки
+  bool inAllProjects = false;
+  bool inRepositories = false;
+  bool huaweiRepoAdded = false;
+  bool buildscriptAdded = false;
+
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Если еще не добавили import, добавляем строки как есть
+    if (!hasImport && i == 0 && trimmed.isEmpty) {
+      continue; // Пропускаем первую пустую строку после добавления import
+    }
+
+    // Отслеживаем блок allprojects
+    if (trimmed == 'allprojects {') {
+      inAllProjects = true;
+      newLines.add(line);
+      continue;
+    }
+
+    if (inAllProjects && trimmed == 'repositories {') {
+      inRepositories = true;
+      newLines.add(line);
+      continue;
+    }
+
+    // Добавляем maven Huawei после mavenCentral в repositories
+    if (inRepositories && trimmed == 'mavenCentral()' && !huaweiRepoAdded) {
+      newLines.add(line);
+      newLines.add('        maven(url = "https://developer.huawei.com/repo/")');
+      huaweiRepoAdded = true;
+      continue;
+    }
+
+    if (inRepositories && trimmed == '}') {
+      inRepositories = false;
+      if (!huaweiRepoAdded) {
+        // Если не нашли mavenCentral, добавляем перед закрывающей скобкой
+        newLines.add(
+          '        maven(url = "https://developer.huawei.com/repo/")',
+        );
+        huaweiRepoAdded = true;
+      }
+      newLines.add(line);
+      continue;
+    }
+
+    if (inAllProjects && trimmed == '}') {
+      inAllProjects = false;
+      newLines.add(line);
+      // Добавляем buildscript блок после allprojects
+      if (!buildscriptAdded) {
+        newLines.add('');
+        newLines.add('buildscript {');
+        newLines.add('    repositories {');
+        newLines.add('        google()');
+        newLines.add('        mavenCentral()');
+        newLines.add(
+          '        maven(url = "https://developer.huawei.com/repo/")',
+        );
+        newLines.add('        gradlePluginPortal()');
+        newLines.add('    }');
+        newLines.add('    dependencies {');
+        newLines.add(
+          '        classpath("com.android.tools.build:gradle:8.8.1")',
+        );
+        newLines.add(
+          '        classpath("com.huawei.agconnect:agcp:1.9.1.303")',
+        );
+        newLines.add(
+          '        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")',
+        );
+        newLines.add('    }');
+        newLines.add('}');
+        buildscriptAdded = true;
+      }
+      continue;
+    }
+
+    newLines.add(line);
+  }
+
+  // Сохраняем файл как есть (не объединяем subprojects блоки)
+  file.writeAsStringSync(newLines.join('\n') + '\n');
+  return true;
+}
+
+/// Удаляет настройки HMS из build.gradle.kts
+bool removeFromBuildGradle(File file) {
+  final content = file.readAsStringSync();
+
+  // Проверяем, есть ли настройки HMS
+  final hasHmsSettings =
+      content.contains('developer.huawei.com/repo') ||
+      content.contains('com.huawei.agconnect:agcp');
+
+  if (!hasHmsSettings) {
+    return false; // Нечего удалять
+  }
+
+  final lines = content.split('\n');
+  final newLines = <String>[];
+
+  bool inBuildscript = false;
+  int buildscriptBraceCount = 0;
+  bool inAllProjectsRepositories = false;
+  bool skipImport = false;
+
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Пропускаем import, если он был добавлен нами (в начале файла)
+    if (trimmed == 'import org.gradle.api.file.Directory' && i == 0) {
+      skipImport = true;
+      continue;
+    }
+
+    if (skipImport && trimmed.isEmpty) {
+      skipImport = false;
+      continue;
+    }
+    skipImport = false;
+
+    // Удаляем maven Huawei из allprojects.repositories
+    if (trimmed == 'allprojects {') {
+      inAllProjectsRepositories = false;
+      newLines.add(line);
+      continue;
+    }
+
+    if (trimmed == 'repositories {' &&
+        i > 0 &&
+        lines[i - 1].trim().contains('allprojects')) {
+      inAllProjectsRepositories = true;
+      newLines.add(line);
+      continue;
+    }
+
+    if (inAllProjectsRepositories &&
+        trimmed.contains('developer.huawei.com/repo')) {
+      continue; // Пропускаем эту строку
+    }
+
+    if (inAllProjectsRepositories && trimmed == '}') {
+      inAllProjectsRepositories = false;
+      newLines.add(line);
+      continue;
+    }
+
+    // Удаляем весь блок buildscript с правильным подсчетом скобок
+    if (trimmed == 'buildscript {') {
+      inBuildscript = true;
+      buildscriptBraceCount = 1;
+      continue; // Пропускаем открывающую скобку buildscript
+    }
+
+    if (inBuildscript) {
+      // Считаем открывающие и закрывающие скобки
+      buildscriptBraceCount += trimmed.split('{').length - 1;
+      buildscriptBraceCount -= trimmed.split('}').length - 1;
+
+      if (buildscriptBraceCount == 0) {
+        // Блок buildscript закрыт
+        inBuildscript = false;
+        continue; // Пропускаем закрывающую скобку buildscript
+      }
+      continue; // Пропускаем все строки внутри buildscript
+    }
+
+    newLines.add(line);
+  }
+
+  // Удаляем лишние пустые строки (более одной подряд)
+  final cleanedLines = <String>[];
+  bool previousEmpty = false;
+  for (int i = 0; i < newLines.length; i++) {
+    final isEmpty = newLines[i].trim().isEmpty;
+    if (isEmpty && previousEmpty) {
+      continue; // Пропускаем повторяющиеся пустые строки
+    }
+    previousEmpty = isEmpty;
+    cleanedLines.add(newLines[i]);
+  }
+
+  // Удаляем пустые строки в конце
+  while (cleanedLines.isNotEmpty && cleanedLines.last.trim().isEmpty) {
+    cleanedLines.removeLast();
+  }
+
+  file.writeAsStringSync(cleanedLines.join('\n') + '\n');
+  return true;
+}

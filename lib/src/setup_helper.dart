@@ -299,8 +299,11 @@ bool removeFromSettingsGradle(File file) {
     newLines.removeLast();
   }
 
-  if (newLines.length != lines.length || foundComment) {
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+  // Удаляем пустые блоки (например, пустой plugins {})
+  final finalLines = _removeEmptyBlocks(newLines);
+
+  if (finalLines.length != lines.length || foundComment) {
+    file.writeAsStringSync(finalLines.join('\n') + '\n');
     return true;
   }
 
@@ -403,11 +406,60 @@ bool removeFromAndroidManifest(File file) {
   }
 
   if (found) {
-    file.writeAsStringSync(newLines.join('\n') + '\n');
+    // Удаляем пустые блоки (например, пустой <queries>)
+    final finalLines = _removeEmptyXmlBlocks(newLines);
+    file.writeAsStringSync(finalLines.join('\n') + '\n');
     return true;
   }
 
   return false;
+}
+
+/// Удаляет пустые XML блоки из списка строк
+List<String> _removeEmptyXmlBlocks(List<String> lines) {
+  final result = <String>[];
+  int i = 0;
+
+  while (i < lines.length) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Проверяем, является ли строка началом XML блока (например, <queries>)
+    if (trimmed.startsWith('<') &&
+        trimmed.endsWith('>') &&
+        !trimmed.endsWith('/>')) {
+      final tagName = trimmed.replaceAll(RegExp(r'[<>]'), '').split(' ')[0];
+      final closingTag = '</$tagName>';
+
+      // Ищем закрывающий тег
+      int startIndex = i;
+      int endIndex = -1;
+      bool hasContent = false;
+
+      for (int j = i + 1; j < lines.length; j++) {
+        final currentTrimmed = lines[j].trim();
+        if (currentTrimmed == closingTag) {
+          endIndex = j;
+          break;
+        }
+        // Проверяем, есть ли содержимое между тегами
+        if (currentTrimmed.isNotEmpty && !currentTrimmed.startsWith('<!--')) {
+          hasContent = true;
+        }
+      }
+
+      // Если блок пустой (только открывающий и закрывающий теги), пропускаем его
+      if (!hasContent && endIndex > startIndex) {
+        i = endIndex + 1;
+        continue;
+      }
+    }
+
+    result.add(line);
+    i++;
+  }
+
+  return result;
 }
 
 /// Обновляет build.gradle.kts, добавляя настройки HMS
@@ -632,6 +684,64 @@ bool removeFromBuildGradle(File file) {
     cleanedLines.removeLast();
   }
 
-  file.writeAsStringSync(cleanedLines.join('\n') + '\n');
+  // Удаляем пустые блоки
+  final finalLines = _removeEmptyBlocks(cleanedLines);
+
+  file.writeAsStringSync(finalLines.join('\n') + '\n');
   return true;
+}
+
+/// Удаляет пустые блоки из списка строк
+List<String> _removeEmptyBlocks(List<String> lines) {
+  final result = <String>[];
+  int i = 0;
+
+  while (i < lines.length) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Проверяем, является ли строка началом блока (например, "buildscript {" или "plugins {")
+    if (trimmed.endsWith('{') && !trimmed.startsWith('//')) {
+      // Ищем закрывающую скобку этого блока
+      int braceCount = 1;
+      int startIndex = i;
+      int endIndex = i;
+      final contentLines = <String>[];
+
+      for (int j = i + 1; j < lines.length && braceCount > 0; j++) {
+        final currentLine = lines[j];
+        final currentTrimmed = currentLine.trim();
+
+        if (currentTrimmed.contains('{')) {
+          braceCount += currentTrimmed.split('{').length - 1;
+        }
+        if (currentTrimmed.contains('}')) {
+          braceCount -= currentTrimmed.split('}').length - 1;
+        }
+
+        // Сохраняем содержимое между скобками (игнорируя пустые строки и комментарии)
+        if (braceCount > 0) {
+          if (currentTrimmed.isNotEmpty && !currentTrimmed.startsWith('//')) {
+            contentLines.add(currentTrimmed);
+          }
+        }
+
+        if (braceCount == 0) {
+          endIndex = j;
+          break;
+        }
+      }
+
+      // Если блок пустой (нет содержимого между скобками), пропускаем его
+      if (contentLines.isEmpty && endIndex > startIndex) {
+        i = endIndex + 1;
+        continue;
+      }
+    }
+
+    result.add(line);
+    i++;
+  }
+
+  return result;
 }

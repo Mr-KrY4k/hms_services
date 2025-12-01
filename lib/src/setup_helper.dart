@@ -201,9 +201,16 @@ Directory? findProjectRoot([String? startPath]) {
   return null;
 }
 
+const String hmsHuaweiRepoKts =
+    '        maven { url = uri("https://developer.huawei.com/repo/") }';
+const String hmsHuaweiRepoGroovy =
+    "        maven { url 'https://developer.huawei.com/repo/' }";
+
 /// Обновляет settings.gradle(.kts), добавляя плагин Huawei AGConnect
+/// и репозиторий Huawei в блок pluginManagement.repositories,
+/// а также resolutionStrategy для плагина com.huawei.agconnect.
 bool updateSettingsGradle(File file) {
-  final content = file.readAsStringSync();
+  String content = file.readAsStringSync();
   final syntaxType = _getGradleSyntaxType(file);
 
   // Определяем константы в зависимости от типа синтаксиса
@@ -214,55 +221,143 @@ bool updateSettingsGradle(File file) {
     agconnectPlugin = agconnectPluginGroovy;
   }
 
-  // Проверяем, есть ли уже плагин
-  if (content.contains('com.huawei.agconnect')) {
-    return false; // Уже настроено
-  }
+  bool changed = false;
 
-  // Ищем блок plugins (многострочный)
-  final pluginsBlockRegex = RegExp(
-    r'plugins\s*\{[^}]*\}',
-    multiLine: true,
-    dotAll: true,
-  );
+  // --- 1. Добавляем плагин, если его ещё нет ---
 
-  final match = pluginsBlockRegex.firstMatch(content);
-  if (match != null) {
-    final pluginsBlock = match.group(0)!;
-
-    // Проверяем, есть ли уже нужный плагин в блоке
-    if (pluginsBlock.contains('com.huawei.agconnect')) {
-      return false;
-    }
-
-    // Добавляем плагин перед закрывающей скобкой блока
-    final updatedPluginsBlock = pluginsBlock.replaceFirst(
-      '}',
-      '    // Плагин для hms_services:\n    $agconnectPlugin\n}',
+  if (!content.contains('com.huawei.agconnect')) {
+    // Ищем блок plugins (многострочный)
+    final pluginsBlockRegex = RegExp(
+      r'plugins\s*\{[^}]*\}',
+      multiLine: true,
+      dotAll: true,
     );
 
-    final newContent = content.replaceFirst(pluginsBlock, updatedPluginsBlock);
-    file.writeAsStringSync(newContent);
-    return true;
-  } else {
-    // Если блока plugins нет, добавляем после pluginManagement
-    final pluginManagementEnd = content.indexOf('include(');
-    if (pluginManagementEnd == -1) {
-      // Если нет include, добавляем в конец
-      final newContent =
-          '$content\n\nplugins {\n    // Плагин для hms_services:\n    $agconnectPlugin\n}\n';
-      file.writeAsStringSync(newContent);
-      return true;
+    final match = pluginsBlockRegex.firstMatch(content);
+    if (match != null) {
+      final pluginsBlock = match.group(0)!;
+
+      // Добавляем плагин перед закрывающей скобкой блока
+      if (!pluginsBlock.contains('com.huawei.agconnect')) {
+        final updatedPluginsBlock = pluginsBlock.replaceFirst(
+          '}',
+          '    // Плагин для hms_services:\n    $agconnectPlugin\n}',
+        );
+
+        content = content.replaceFirst(pluginsBlock, updatedPluginsBlock);
+        changed = true;
+      }
     } else {
-      // Вставляем перед include
-      final before = content.substring(0, pluginManagementEnd);
-      final after = content.substring(pluginManagementEnd);
-      final newContent =
-          '$before\nplugins {\n    // Плагин для hms_services:\n    $agconnectPlugin\n}\n\n$after';
-      file.writeAsStringSync(newContent);
-      return true;
+      // Если блока plugins нет, добавляем после pluginManagement/include
+      final pluginManagementEnd = content.indexOf('include(');
+      if (pluginManagementEnd == -1) {
+        // Если нет include, добавляем в конец
+        content =
+            '$content\n\nplugins {\n    // Плагин для hms_services:\n    $agconnectPlugin\n}\n';
+      } else {
+        // Вставляем перед include
+        final before = content.substring(0, pluginManagementEnd);
+        final after = content.substring(pluginManagementEnd);
+        content =
+            '$before\nplugins {\n    // Плагин для hms_services:\n    $agconnectPlugin\n}\n\n$after';
+      }
+      changed = true;
     }
   }
+
+  // --- 2. Добавляем Huawei Maven репозиторий в pluginManagement.repositories ---
+  if (!content.contains('developer.huawei.com/repo')) {
+    final String repoLine =
+        syntaxType == GradleSyntaxType.kotlinDsl ? hmsHuaweiRepoKts : hmsHuaweiRepoGroovy;
+    const String portalLine = '        gradlePluginPortal()';
+
+    if (content.contains(portalLine)) {
+      content = content.replaceFirst(
+        portalLine,
+        '$repoLine\n$portalLine',
+      );
+      changed = true;
+    }
+  }
+
+  // --- 3. Добавляем resolutionStrategy для com.huawei.agconnect ---
+  final hasResolutionStrategy = content.contains(
+        'useModule("com.huawei.agconnect:agcp:1.9.1.303")',
+      ) ||
+      content.contains(
+        'useModule "com.huawei.agconnect:agcp:1.9.1.303"',
+      );
+
+  if (!hasResolutionStrategy) {
+    final lines = content.split('\n');
+    final newLines = <String>[];
+    bool inPluginManagement = false;
+    int pluginManagementDepth = 0;
+    bool resolutionAdded = false;
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final trimmed = line.trim();
+
+      if (!inPluginManagement && trimmed.startsWith('pluginManagement')) {
+        inPluginManagement = true;
+        // Инициализируем глубину скобок для pluginManagement
+        pluginManagementDepth = 0;
+        pluginManagementDepth += line.split('{').length - 1;
+        pluginManagementDepth -= line.split('}').length - 1;
+        newLines.add(line);
+        continue;
+      }
+
+      // Вставляем resolutionStrategy перед блоком repositories внутри pluginManagement
+      if (inPluginManagement &&
+          !resolutionAdded &&
+          trimmed.startsWith('repositories') &&
+          trimmed.endsWith('{')) {
+        newLines.add(
+          '    resolutionStrategy {',
+        );
+        newLines.add('        eachPlugin {');
+        newLines.add(
+          '            if (requested.id.id == "com.huawei.agconnect") {',
+        );
+        newLines.add(
+          '                useModule("com.huawei.agconnect:agcp:1.9.1.303")',
+        );
+        newLines.add('            }');
+        newLines.add('        }');
+        newLines.add('    }');
+        resolutionAdded = true;
+        newLines.add(line);
+        continue;
+      }
+
+      if (inPluginManagement) {
+        // Обновляем глубину скобок внутри pluginManagement
+        pluginManagementDepth += line.split('{').length - 1;
+        pluginManagementDepth -= line.split('}').length - 1;
+
+        // Выходим из pluginManagement, когда глубина вернулась к нулю
+        if (pluginManagementDepth <= 0) {
+          inPluginManagement = false;
+        }
+      }
+
+      newLines.add(line);
+    }
+
+    if (resolutionAdded) {
+      content = newLines.join('\n');
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    file.writeAsStringSync(content);
+    return true;
+  }
+
+  return false;
 }
 
 /// Обновляет AndroidManifest.xml, добавляя настройки HMS
@@ -411,10 +506,14 @@ bool updateAndroidManifest(File file) {
 bool removeFromSettingsGradle(File file) {
   final lines = file.readAsLinesSync();
 
-  // Проверяем, есть ли плагин
-  final hasPlugin = lines.any((line) => line.contains('com.huawei.agconnect'));
+  // Проверяем, есть ли что удалять: плагин или Huawei‑репозиторий
+  final hasHmsSettings = lines.any(
+    (line) =>
+        line.contains('com.huawei.agconnect') ||
+        line.contains('developer.huawei.com/repo'),
+  );
 
-  if (!hasPlugin) {
+  if (!hasHmsSettings) {
     return false; // Нечего удалять
   }
 
@@ -438,8 +537,66 @@ bool removeFromSettingsGradle(File file) {
       continue;
     }
 
+    // Пропускаем строку с Huawei Maven репозиторием
+    if (trimmed.contains('developer.huawei.com/repo')) {
+      foundComment = true;
+      continue;
+    }
+
     newLines.add(line);
   }
+
+  // Удаляем наш блок resolutionStrategy (если он есть)
+  final cleanedResolutionLines = <String>[];
+  bool inResolution = false;
+  int braceDepth = 0;
+
+  for (int i = 0; i < newLines.length; i++) {
+    final line = newLines[i];
+    final trimmed = line.trim();
+
+    if (!inResolution &&
+        trimmed.startsWith('resolutionStrategy') &&
+        trimmed.endsWith('{')) {
+      // Проверяем, что внутри блока есть наш useModule для agcp
+      int localDepth = 1;
+      bool hasAgconnectModule = false;
+      for (int j = i + 1; j < newLines.length && localDepth > 0; j++) {
+        final t = newLines[j].trim();
+        localDepth += t.split('{').length - 1;
+        localDepth -= t.split('}').length - 1;
+        if (t.contains('com.huawei.agconnect:agcp:1.9.1.303')) {
+          hasAgconnectModule = true;
+        }
+      }
+
+      if (hasAgconnectModule) {
+        inResolution = true;
+        braceDepth = 1;
+        foundComment = true;
+        continue; // не добавляем строку с открытием блока
+      }
+
+      // Это не наш блок – оставляем как есть
+      cleanedResolutionLines.add(line);
+      continue;
+    }
+
+    if (inResolution) {
+      braceDepth += line.split('{').length - 1;
+      braceDepth -= line.split('}').length - 1;
+      if (braceDepth <= 0) {
+        inResolution = false; // закончился наш блок
+      }
+      continue; // пропускаем все строки внутри блока
+    }
+
+    cleanedResolutionLines.add(line);
+  }
+
+  newLines
+    ..clear()
+    ..addAll(cleanedResolutionLines);
 
   // Удаляем лишние пустые строки в конце
   while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {

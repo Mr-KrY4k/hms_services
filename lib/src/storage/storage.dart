@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:hive_ce/hive.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../logger.dart' show HmsLogger;
 
@@ -33,6 +36,49 @@ final class Storage {
   /// Флаг выполнения инициализации.
   bool _isPending = false;
 
+  /// Флаг, что Hive уже инициализирован.
+  static bool _hiveInitialized = false;
+
+  /// Гарантирует, что Hive инициализирован с корректным путем.
+  ///
+  /// Логика аналогична использованию в приложении:
+  /// - на Android/iOS используется `getApplicationDocumentsDirectory()`
+  /// - на других платформах используется `Directory.current.path`
+  static Future<void> _ensureHiveInitialized() async {
+    if (_hiveInitialized) return;
+
+    try {
+      String path;
+      if (Platform.isAndroid || Platform.isIOS) {
+        final appDocDir = await getApplicationDocumentsDirectory();
+        path = appDocDir.path;
+      } else {
+        path = Directory.current.path;
+      }
+
+      if (path.isEmpty) {
+        throw Exception('Hive path is empty');
+      }
+
+      final directory = Directory(path);
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+
+      Hive.init(path);
+
+      _hiveInitialized = true;
+      HmsLogger.debug('Storage: Hive инициализирован по пути: $path');
+    } catch (e, st) {
+      HmsLogger.error(
+        'Storage: ошибка при инициализации Hive',
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
+  }
+
   /// Инициализирует storage.
   ///
   /// Открывает бокс для хранения данных.
@@ -54,6 +100,8 @@ final class Storage {
     try {
       _isPending = true;
       HmsLogger.debug('Storage[$boxName]: начало инициализации');
+
+      await _ensureHiveInitialized();
 
       _box = await Hive.openBox<Map>(boxName);
       _isInitialized = true;

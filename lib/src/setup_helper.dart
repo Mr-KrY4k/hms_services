@@ -1572,8 +1572,15 @@ bool removeDependenciesFromAppBuildGradle(File file) {
   return false;
 }
 
-/// Удаляет настройки из app/build.gradle.kts (proguardFiles, плагины, зависимости)
-bool removeFromAppBuildGradle(File file) {
+/// Удаляет настройки из app/build.gradle.kts (proguardFiles, плагины, зависимости).
+///
+/// [removeDebugOptimizations] – если `true`, дополнительно удаляет строки
+/// `isMinifyEnabled = true` и `isShrinkResources = true` только из блока
+/// `debug { ... }`. Это используется, когда `proguard-rules.pro` отсутствует.
+bool removeFromAppBuildGradle(
+  File file, {
+  bool removeDebugOptimizations = false,
+}) {
   bool changesMade = false;
 
   // Удаляем плагин agconnect
@@ -1611,10 +1618,34 @@ bool removeFromAppBuildGradle(File file) {
   final newLines = <String>[];
   bool inProguardFiles = false;
   int parenCount = 0;
+  bool inDebugBlock = false;
+  bool inReleaseBlockLocal = false;
 
   for (int i = 0; i < lines.length; i++) {
     final line = lines[i];
     final trimmed = line.trim();
+
+    // Отслеживаем начало/конец блока debug и release
+    if (trimmed == 'debug {') {
+      inDebugBlock = true;
+      newLines.add(line);
+      continue;
+    }
+    if (trimmed == 'release {') {
+      inReleaseBlockLocal = true;
+      newLines.add(line);
+      continue;
+    }
+    if (inDebugBlock && trimmed == '}') {
+      inDebugBlock = false;
+      newLines.add(line);
+      continue;
+    }
+    if (inReleaseBlockLocal && trimmed == '}') {
+      inReleaseBlockLocal = false;
+      newLines.add(line);
+      continue;
+    }
 
     // Ищем начало блока proguardFiles
     if (trimmed.contains('proguardFiles') && line.contains('(')) {
@@ -1648,6 +1679,15 @@ bool removeFromAppBuildGradle(File file) {
         continue; // Пропускаем последнюю строку блока
       }
       continue; // Пропускаем все строки внутри блока
+    }
+
+    // Опционально убираем оптимизации из debug/release-блоков,
+    // если proguard отсутствует
+    if (removeDebugOptimizations &&
+        (inDebugBlock || inReleaseBlockLocal) &&
+        (trimmed == 'isMinifyEnabled = true' ||
+            trimmed == 'isShrinkResources = true')) {
+      continue;
     }
 
     newLines.add(line);

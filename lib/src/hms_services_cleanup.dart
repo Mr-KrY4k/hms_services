@@ -119,12 +119,17 @@ Future<SetupResult> cleanupHmsServices({String? projectRoot}) async {
     messages.add('ℹ️  Файл proguard-rules.pro не найден. Пропуск...');
   }
 
+  final shouldRemoveDebugOptimizations = !proguardFile.existsSync();
+
   // Удаление из app/build.gradle (поддерживает .kts и .gradle)
   final appBuildGradleFile = helper.findAppBuildGradleFile(androidDir);
   if (appBuildGradleFile != null) {
     final fileName = appBuildGradleFile.path.split('/').last;
     messages.add('📝 Обновление $fileName...');
-    if (helper.removeFromAppBuildGradle(appBuildGradleFile)) {
+    if (helper.removeFromAppBuildGradle(
+      appBuildGradleFile,
+      removeDebugOptimizations: shouldRemoveDebugOptimizations,
+    )) {
       changesMade = true;
       messages.add('✅ Настройки удалены из $fileName.');
     } else {

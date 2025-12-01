@@ -11,6 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
 
+  permission_handler: ^12.0.1
+
   huawei_push:
     git:
       url: https://github.com/norutplz/hms-flutter-plugin.git
@@ -21,6 +23,10 @@ dependencies:
       url: https://github.com/norutplz/hms-flutter-plugin.git
       ref: hms_push_flutter_3.29
       path: flutter-hms-ads
+
+  logger: ^2.6.2
+
+  hive_ce: ^2.15.1
 
 dev_dependencies:
   flutter_test:

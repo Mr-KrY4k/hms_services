@@ -1206,11 +1206,6 @@ bool updateAppBuildGradle(File file, File proguardFile) {
   bool shouldAddProguardFiles = proguardFile.existsSync() && !hasProguardFiles;
 
   // Проверяем, есть ли уже нужные настройки
-  bool hasReleaseMinify = false;
-  bool hasReleaseShrink = false;
-  bool hasDebugMinify = false;
-  bool hasDebugShrink = false;
-  bool hasDebugDebuggable = false;
   bool hasDebugBlock = false;
   bool hasDebugSigningConfig = false;
   bool hasReleaseSigningConfig = false;
@@ -1233,26 +1228,11 @@ bool updateAppBuildGradle(File file, File proguardFile) {
       inDebugBlock = false;
       inReleaseBlock = false;
     } else if (inReleaseBlock) {
-      if (trimmed == 'isMinifyEnabled = true') {
-        hasReleaseMinify = true;
-      }
-      if (trimmed == 'isShrinkResources = true') {
-        hasReleaseShrink = true;
-      }
       if (trimmed.contains('signingConfig') &&
           trimmed.contains('getByName("release")')) {
         hasReleaseSigningConfig = true;
       }
     } else if (inDebugBlock) {
-      if (trimmed == 'isMinifyEnabled = true') {
-        hasDebugMinify = true;
-      }
-      if (trimmed == 'isShrinkResources = true') {
-        hasDebugShrink = true;
-      }
-      if (trimmed == 'isDebuggable = true') {
-        hasDebugDebuggable = true;
-      }
       if (trimmed.contains('signingConfig') &&
           trimmed.contains('getByName("release")')) {
         hasDebugSigningConfig = true;
@@ -1264,8 +1244,7 @@ bool updateAppBuildGradle(File file, File proguardFile) {
   bool inBuildTypes = false;
   // inReleaseBlock и inDebugBlock уже определены выше
   bool proguardFilesAdded = false;
-  bool releaseSettingsAdded = false;
-  bool debugSettingsAdded = false;
+  bool debugBlockCreated = false;
   bool releaseSigningConfigUpdated = false;
 
   // Сбрасываем флаги для нового цикла
@@ -1344,15 +1323,6 @@ bool updateAppBuildGradle(File file, File proguardFile) {
         newLines.add('            )');
         proguardFilesAdded = true;
       }
-      if (!releaseSettingsAdded && (!hasReleaseMinify || !hasReleaseShrink)) {
-        if (!hasReleaseMinify) {
-          newLines.add('            isMinifyEnabled = true');
-        }
-        if (!hasReleaseShrink) {
-          newLines.add('            isShrinkResources = true');
-        }
-        releaseSettingsAdded = true;
-      }
       newLines.add(line);
       continue;
     }
@@ -1366,19 +1336,6 @@ bool updateAppBuildGradle(File file, File proguardFile) {
           '            signingConfig = signingConfigs.getByName("release")',
         );
       }
-      if (!debugSettingsAdded &&
-          (!hasDebugMinify || !hasDebugShrink || !hasDebugDebuggable)) {
-        if (!hasDebugMinify) {
-          newLines.add('            isMinifyEnabled = true');
-        }
-        if (!hasDebugShrink) {
-          newLines.add('            isShrinkResources = true');
-        }
-        if (!hasDebugDebuggable) {
-          newLines.add('            isDebuggable = true');
-        }
-        debugSettingsAdded = true;
-      }
       newLines.add(line);
       continue;
     }
@@ -1386,16 +1343,13 @@ bool updateAppBuildGradle(File file, File proguardFile) {
     if (inBuildTypes && trimmed == '}') {
       inBuildTypes = false;
       // Если нет блока debug, создаем его перед закрывающей скобкой buildTypes
-      if (!hasDebugBlock && !debugSettingsAdded) {
+      if (!hasDebugBlock && !debugBlockCreated) {
         newLines.add('        debug {');
         newLines.add(
           '            signingConfig = signingConfigs.getByName("release")',
         );
-        newLines.add('            isMinifyEnabled = true');
-        newLines.add('            isShrinkResources = true');
-        newLines.add('            isDebuggable = true');
         newLines.add('        }');
-        debugSettingsAdded = true;
+        debugBlockCreated = true;
       }
       newLines.add(line);
       continue;

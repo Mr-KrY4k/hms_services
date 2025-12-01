@@ -48,14 +48,10 @@ android {
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
             )
-            isMinifyEnabled = true
-            isShrinkResources = true
         }
         debug {
             signingConfig = signingConfigs.getByName("release")
             isDebuggable = true
-            isMinifyEnabled = true
-            isShrinkResources = true
         }
     }
 }

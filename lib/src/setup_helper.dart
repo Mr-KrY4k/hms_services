@@ -18,13 +18,11 @@ class SetupResult {
 const String agconnectPlugin =
     'id("com.huawei.agconnect") version "1.9.1.303" apply false';
 
-/// XML для service с intent для com.huawei.hms.core.aidlservice
-const String hmsAidlService = '''
-        <service android:name="com.huawei.hms.core.aidlservice.AIDLService" android:exported="true">
-            <intent-filter>
-                <action android:name="com.huawei.hms.core.aidlservice" />
-            </intent-filter>
-        </service>''';
+/// XML для intent в queries для com.huawei.hms.core.aidlservice
+const String hmsAidlServiceIntent = '''
+        <intent>
+            <action android:name="com.huawei.hms.core.aidlservice" />
+        </intent>''';
 
 /// XML для meta-data push_kit_auto_init_enabled
 const String pushKitAutoInitMetaData =
@@ -125,14 +123,29 @@ bool updateAndroidManifest(File file) {
   final lines = file.readAsLinesSync();
 
   // Проверяем, есть ли уже настройки HMS
-  final hasHmsSettings = lines.any(
-    (line) =>
-        line.contains('com.huawei.hms.core.aidlservice') ||
-        line.contains('push_kit_auto_init_enabled') ||
-        line.contains('HmsLocalNotificationBootEventReceiver') ||
-        line.contains('HmsLocalNotificationScheduledPublisher') ||
-        line.contains('BackgroundMessageBroadcastReceiver'),
+  // Проверяем наличие intent в queries
+  final hasAidlIntent = lines.any(
+    (line) => line.contains('com.huawei.hms.core.aidlservice'),
   );
+  final hasPushKitMeta = lines.any(
+    (line) => line.contains('push_kit_auto_init_enabled'),
+  );
+  final hasBootReceiver = lines.any(
+    (line) => line.contains('HmsLocalNotificationBootEventReceiver'),
+  );
+  final hasScheduledReceiver = lines.any(
+    (line) => line.contains('HmsLocalNotificationScheduledPublisher'),
+  );
+  final hasBackgroundReceiver = lines.any(
+    (line) => line.contains('BackgroundMessageBroadcastReceiver'),
+  );
+
+  final hasHmsSettings =
+      hasAidlIntent &&
+      hasPushKitMeta &&
+      hasBootReceiver &&
+      hasScheduledReceiver &&
+      hasBackgroundReceiver;
 
   if (hasHmsSettings) {
     return false; // Уже добавлено
@@ -142,6 +155,10 @@ bool updateAndroidManifest(File file) {
   int applicationCloseIndex = -1;
   bool hasApplicationTag = false;
 
+  // Ищем тег <queries> для добавления intent
+  int queriesCloseIndex = -1;
+  bool hasQueriesTag = false;
+
   for (int i = 0; i < lines.length; i++) {
     final line = lines[i].trim();
     if (line.startsWith('<application')) {
@@ -149,6 +166,12 @@ bool updateAndroidManifest(File file) {
     }
     if (hasApplicationTag && line == '</application>') {
       applicationCloseIndex = i;
+    }
+    if (line == '<queries>') {
+      hasQueriesTag = true;
+    }
+    if (hasQueriesTag && line == '</queries>') {
+      queriesCloseIndex = i;
       break;
     }
   }
@@ -162,8 +185,6 @@ bool updateAndroidManifest(File file) {
       if (line.trim() == '</manifest>') {
         // Вставляем application перед </manifest>
         newLines.add('    <application>');
-        newLines.add(hmsAidlService);
-        newLines.add('');
         newLines.add('        $pushKitAutoInitMetaData');
         newLines.add('');
         newLines.add(hmsLocalNotificationBootEventReceiver);
@@ -182,8 +203,6 @@ bool updateAndroidManifest(File file) {
     for (int i = 0; i < lines.length; i++) {
       if (i == applicationCloseIndex) {
         // Вставляем перед закрывающим тегом application
-        newLines.add(hmsAidlService);
-        newLines.add('');
         newLines.add('        $pushKitAutoInitMetaData');
         newLines.add('');
         newLines.add(hmsLocalNotificationBootEventReceiver);
@@ -198,6 +217,53 @@ bool updateAndroidManifest(File file) {
     }
   }
 
+  // Добавляем intent в queries
+  // Пересчитываем индексы queries в newLines
+  int newQueriesCloseIndex = -1;
+  bool newHasQueriesTag = false;
+
+  for (int i = 0; i < newLines.length; i++) {
+    final line = newLines[i].trim();
+    if (line == '<queries>') {
+      newHasQueriesTag = true;
+    }
+    if (newHasQueriesTag && line == '</queries>') {
+      newQueriesCloseIndex = i;
+      break;
+    }
+  }
+
+  if (newHasQueriesTag && newQueriesCloseIndex != -1) {
+    // Если queries существует, добавляем intent перед закрывающим тегом
+    final updatedLines = <String>[];
+    for (int i = 0; i < newLines.length; i++) {
+      if (i == newQueriesCloseIndex) {
+        updatedLines.add(hmsAidlServiceIntent);
+        updatedLines.add(newLines[i]);
+      } else {
+        updatedLines.add(newLines[i]);
+      }
+    }
+    newLines.clear();
+    newLines.addAll(updatedLines);
+  } else {
+    // Если queries нет, создаем его перед </manifest>
+    final updatedLines = <String>[];
+    for (int i = 0; i < newLines.length; i++) {
+      final line = newLines[i];
+      if (line.trim() == '</manifest>') {
+        updatedLines.add('    <queries>');
+        updatedLines.add(hmsAidlServiceIntent);
+        updatedLines.add('    </queries>');
+        updatedLines.add(line);
+      } else {
+        updatedLines.add(line);
+      }
+    }
+    newLines.clear();
+    newLines.addAll(updatedLines);
+  }
+
   file.writeAsStringSync(newLines.join('\n') + '\n');
   return true;
 }
@@ -207,9 +273,7 @@ bool removeFromSettingsGradle(File file) {
   final lines = file.readAsLinesSync();
 
   // Проверяем, есть ли плагин
-  final hasPlugin = lines.any(
-    (line) => line.contains('com.huawei.agconnect'),
-  );
+  final hasPlugin = lines.any((line) => line.contains('com.huawei.agconnect'));
 
   if (!hasPlugin) {
     return false; // Нечего удалять
@@ -258,8 +322,7 @@ bool removeFromAndroidManifest(File file) {
   // Проверяем, есть ли настройки HMS
   final hasHmsSettings = lines.any(
     (line) =>
-        (line.contains('com.huawei.hms.core.aidlservice') &&
-            (line.contains('<service') || line.contains('AIDLService'))) ||
+        line.contains('com.huawei.hms.core.aidlservice') ||
         line.contains('push_kit_auto_init_enabled') ||
         line.contains('HmsLocalNotificationBootEventReceiver') ||
         line.contains('HmsLocalNotificationScheduledPublisher') ||
@@ -271,75 +334,86 @@ bool removeFromAndroidManifest(File file) {
   }
 
   final newLines = <String>[];
+  bool found = false;
   bool skipNextLines = false;
-  int skipCount = 0;
 
   for (int i = 0; i < lines.length; i++) {
     final line = lines[i];
     final trimmed = line.trim();
 
-    // Пропускаем service с AIDLService для com.huawei.hms.core.aidlservice
-    if (trimmed.contains('<service') && trimmed.contains('AIDLService')) {
-      skipNextLines = true;
-      skipCount = 0;
-      continue;
-    }
-
+    // Если мы в режиме пропуска строк (skipNextLines), проверяем закрывающие теги
     if (skipNextLines) {
-      skipCount++;
-      if (trimmed.contains('</service>')) {
+      // КРИТИЧНО: Не пропускаем закрывающий тег </application>
+      // Это защита от случайного удаления структуры манифеста
+      if (trimmed == '</application>') {
+        newLines.add(line);
         skipNextLines = false;
-        skipCount = 0;
+        continue;
       }
-      continue;
+      // Останавливаем пропуск при закрытии текущего элемента
+      if (trimmed.contains('</intent>') || trimmed.contains('</receiver>')) {
+        skipNextLines = false;
+      }
+      continue; // Пропускаем все строки внутри удаляемого элемента
     }
 
-    // Пропускаем meta-data для push_kit_auto_init_enabled
+    // 1. Удаление intent с com.huawei.hms.core.aidlservice в блоке <queries>
+    if (trimmed.contains('<intent>')) {
+      // Проверяем следующие строки до </intent> на наличие нашего action
+      bool isOurIntent = false;
+      for (int j = i; j < i + 5 && j < lines.length; j++) {
+        if (lines[j].contains('com.huawei.hms.core.aidlservice')) {
+          isOurIntent = true;
+          break;
+        }
+        if (lines[j].trim().contains('</intent>')) {
+          break;
+        }
+      }
+      if (isOurIntent) {
+        found = true;
+        skipNextLines = true; // Пропускаем весь блок <intent>...</intent>
+        continue;
+      }
+    }
+
+    // 2. Удаление meta-data для push_kit_auto_init_enabled
+    // Это однострочный элемент, просто пропускаем его
     if (trimmed.contains('push_kit_auto_init_enabled')) {
-      continue;
+      found = true;
+      continue; // Не добавляем эту строку в newLines
     }
 
-    // Пропускаем receiver HmsLocalNotificationBootEventReceiver
+    // 3. Удаление receiver HmsLocalNotificationBootEventReceiver
+    // Это многострочный элемент <receiver>...</receiver>
     if (trimmed.contains('HmsLocalNotificationBootEventReceiver')) {
-      skipNextLines = true;
-      skipCount = 0;
+      found = true;
+      skipNextLines = true; // Пропускаем весь блок <receiver>...</receiver>
       continue;
     }
 
-    if (skipNextLines && skipCount > 0) {
-      skipCount++;
-      if (trimmed.contains('</receiver>')) {
-        skipNextLines = false;
-        skipCount = 0;
-      }
-      continue;
-    }
-
-    // Пропускаем receiver HmsLocalNotificationScheduledPublisher
+    // 4. Удаление receiver HmsLocalNotificationScheduledPublisher
     if (trimmed.contains('HmsLocalNotificationScheduledPublisher')) {
-      continue;
-    }
-
-    // Пропускаем receiver BackgroundMessageBroadcastReceiver
-    if (trimmed.contains('BackgroundMessageBroadcastReceiver')) {
+      found = true;
       skipNextLines = true;
-      skipCount = 0;
       continue;
     }
 
+    // 5. Удаление receiver BackgroundMessageBroadcastReceiver
+    if (trimmed.contains('BackgroundMessageBroadcastReceiver')) {
+      found = true;
+      skipNextLines = true;
+      continue;
+    }
+
+    // Если строка не является удаляемым элементом, добавляем её в результат
     newLines.add(line);
   }
 
-  // Удаляем лишние пустые строки в конце
-  while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {
-    newLines.removeLast();
-  }
-
-  if (newLines.length != lines.length) {
+  if (found) {
     file.writeAsStringSync(newLines.join('\n') + '\n');
     return true;
   }
 
   return false;
 }
-

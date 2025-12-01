@@ -71,7 +71,7 @@ Future<SetupResult> cleanupHmsServices({String? projectRoot}) async {
 
   // Удаление из AndroidManifest.xml
   final manifestFile = File(
-    '${androidDir.path}/src/main/AndroidManifest.xml',
+    '${androidDir.path}/app/src/main/AndroidManifest.xml',
   );
   if (manifestFile.existsSync()) {
     messages.add('📝 Обновление AndroidManifest.xml...');

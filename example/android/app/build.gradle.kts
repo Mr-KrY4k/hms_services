@@ -3,8 +3,6 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    // Плагин для hms_services:
-    id("com.huawei.agconnect")
 }
 
 android {
@@ -37,27 +35,14 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android.txt"),
-                "proguard-rules.pro"
-            )
-            isMinifyEnabled = true
-            isShrinkResources = true
         }
         debug {
             signingConfig = signingConfigs.getByName("release")
             isDebuggable = true
-            isMinifyEnabled = true
-            isShrinkResources = true
         }
     }
 }
 
 flutter {
     source = "../.."
-}
-
-dependencies {
-    // Зависимость для hms_services:
-    implementation("com.android.installreferrer:installreferrer:2.2")
 }

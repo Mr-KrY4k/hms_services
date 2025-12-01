@@ -117,6 +117,22 @@ Future<SetupResult> setupHmsServices({String? projectRoot}) async {
     );
   }
 
+  // Настройка app/build.gradle.kts (proguardFiles)
+  final appBuildGradleFile = File('${androidDir.path}/app/build.gradle.kts');
+  if (appBuildGradleFile.existsSync()) {
+    messages.add('📝 Обновление app/build.gradle.kts...');
+    if (helper.updateAppBuildGradle(appBuildGradleFile, proguardFile)) {
+      changesMade = true;
+      messages.add('✅ app/build.gradle.kts обновлен успешно.');
+    } else {
+      messages.add(
+        'ℹ️  app/build.gradle.kts уже содержит необходимые настройки или файл proguard-rules.pro отсутствует.',
+      );
+    }
+  } else {
+    messages.add('⚠️  Файл app/build.gradle.kts не найден. Пропуск...');
+  }
+
   // Добавляем финальные сообщения для пользователя
   if (changesMade) {
     messages.add('');

@@ -883,3 +883,156 @@ bool removeFromProguardRules(File file) {
   file.writeAsStringSync(finalContent + '\n');
   return true;
 }
+
+/// Обновляет app/build.gradle.kts, добавляя proguardFiles
+bool updateAppBuildGradle(File file, File proguardFile) {
+  // Проверяем, существует ли файл proguard-rules.pro
+  if (!proguardFile.existsSync()) {
+    return false; // Не добавляем, если файла нет
+  }
+
+  final content = file.readAsStringSync();
+
+  // Проверяем построчно, есть ли уже proguardFiles
+  final lines = content.split('\n');
+  for (final line in lines) {
+    final trimmed = line.trim();
+    if (trimmed.contains('proguardFiles') &&
+        trimmed.contains('proguard-rules.pro')) {
+      return false; // Уже добавлено
+    }
+  }
+
+  final newLines = <String>[];
+  bool inBuildTypes = false;
+  bool inRelease = false;
+  bool proguardFilesAdded = false;
+
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Отслеживаем блок buildTypes
+    if (trimmed == 'buildTypes {') {
+      inBuildTypes = true;
+      newLines.add(line);
+      continue;
+    }
+
+    // Отслеживаем блок release
+    if (inBuildTypes && trimmed == 'release {') {
+      inRelease = true;
+      newLines.add(line);
+      continue;
+    }
+
+    // Добавляем proguardFiles перед закрывающей скобкой release
+    if (inRelease && trimmed == '}') {
+      inRelease = false;
+      if (!proguardFilesAdded) {
+        newLines.add('            proguardFiles(');
+        newLines.add(
+          '                getDefaultProguardFile("proguard-android.txt"),',
+        );
+        newLines.add('                "proguard-rules.pro"');
+        newLines.add('            )');
+        proguardFilesAdded = true;
+      }
+      newLines.add(line);
+      continue;
+    }
+
+    if (inBuildTypes && trimmed == '}') {
+      inBuildTypes = false;
+      newLines.add(line);
+      continue;
+    }
+
+    newLines.add(line);
+  }
+
+  // Удаляем пустые строки в конце
+  while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {
+    newLines.removeLast();
+  }
+
+  file.writeAsStringSync(newLines.join('\n') + '\n');
+  return true;
+}
+
+/// Удаляет proguardFiles из app/build.gradle.kts
+bool removeFromAppBuildGradle(File file) {
+  final content = file.readAsStringSync();
+
+  // Проверяем построчно, есть ли proguardFiles
+  final lines = content.split('\n');
+  bool hasProguardFiles = false;
+  bool foundProguardFiles = false;
+  for (final line in lines) {
+    final trimmed = line.trim();
+    if (trimmed.contains('proguardFiles')) {
+      foundProguardFiles = true;
+    }
+    if (foundProguardFiles && trimmed.contains('proguard-rules.pro')) {
+      hasProguardFiles = true;
+      break;
+    }
+  }
+
+  if (!hasProguardFiles) {
+    return false; // Нечего удалять
+  }
+
+  final newLines = <String>[];
+  bool inProguardFiles = false;
+  int parenCount = 0;
+
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    // Ищем начало блока proguardFiles
+    if (trimmed.contains('proguardFiles') && line.contains('(')) {
+      inProguardFiles = true;
+      // Считаем скобки в этой строке
+      parenCount = 0;
+      for (int j = 0; j < line.length; j++) {
+        if (line[j] == '(') parenCount++;
+        if (line[j] == ')') parenCount--;
+      }
+      // Если в этой строке уже закрыта, пропускаем её и продолжаем
+      if (parenCount <= 0) {
+        inProguardFiles = false;
+        parenCount = 0;
+        continue;
+      }
+      continue; // Пропускаем строку с proguardFiles(
+    }
+
+    if (inProguardFiles) {
+      // Считаем скобки в текущей строке
+      for (int j = 0; j < line.length; j++) {
+        if (line[j] == '(') parenCount++;
+        if (line[j] == ')') parenCount--;
+      }
+
+      // Если все скобки закрыты, блок завершен
+      if (parenCount <= 0) {
+        inProguardFiles = false;
+        parenCount = 0;
+        continue; // Пропускаем последнюю строку блока
+      }
+      continue; // Пропускаем все строки внутри блока
+    }
+
+    newLines.add(line);
+  }
+
+  // Удаляем пустые строки в конце
+  while (newLines.isNotEmpty && newLines.last.trim().isEmpty) {
+    newLines.removeLast();
+  }
+
+  file.writeAsStringSync(newLines.join('\n') + '\n');
+  return true;
+}

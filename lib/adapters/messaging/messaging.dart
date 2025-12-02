@@ -44,10 +44,14 @@ final class Messaging {
       StreamController<Map<Object?, Object?>>.broadcast();
 
   /// Стрим контроллер для изменения статуса уведомлений.
-  final _onNotificationStatusChanged = StreamController<bool>.broadcast();
+  final _onNotificationStatusChanged =
+      StreamController<PermissionStatus>.broadcast();
 
   /// Список всех полученных сообщений.
   final List<Map<Object?, Object?>> _messages = [];
+
+  /// Статус уведомлений.
+  PermissionStatus _notificationStatus = PermissionStatus.denied;
 
   /// Флаг инициализации.
   bool _isInitialized = false;
@@ -71,8 +75,11 @@ final class Messaging {
       _onMessageReceived.stream;
 
   /// Стрим изменения статуса уведомлений.
-  Stream<bool> get onNotificationStatusChanged =>
+  Stream<PermissionStatus> get onNotificationStatusChanged =>
       _onNotificationStatusChanged.stream;
+
+  /// Получает статус уведомлений.
+  PermissionStatus get notificationStatus => _notificationStatus;
 
   /// Устанавливает колбек для обработки блокировки пушей.
   ///
@@ -388,11 +395,10 @@ final class Messaging {
   /// Проверяет статус уведомлений.
   Future<void> _checkNotificationStatus() async {
     try {
-      final status = await Permission.notification.status;
-      final isGranted = status == PermissionStatus.granted;
-      _onNotificationStatusChanged.add(isGranted);
+      _notificationStatus = await Permission.notification.status;
+      _onNotificationStatusChanged.add(_notificationStatus);
 
-      HmsLogger.debug('Messaging: статус уведомлений: $status');
+      HmsLogger.debug('Messaging: статус уведомлений: $_notificationStatus');
     } catch (e, st) {
       HmsLogger.error(
         'Messaging: ошибка при проверке статуса уведомлений',

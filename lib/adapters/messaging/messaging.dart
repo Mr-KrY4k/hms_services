@@ -131,7 +131,7 @@ final class Messaging {
       }
 
       await _loadStoredMessages();
-      await _checkNotificationStatus();
+      await checkNotificationStatus();
       await _getToken();
       await _handleInitialMessage();
       await _setupMessageListeners();
@@ -393,7 +393,7 @@ final class Messaging {
   }
 
   /// Проверяет статус уведомлений.
-  Future<void> _checkNotificationStatus() async {
+  Future<void> checkNotificationStatus() async {
     try {
       _notificationStatus = await Permission.notification.status;
       _onNotificationStatusChanged.add(_notificationStatus);
